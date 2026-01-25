@@ -123,7 +123,7 @@ module SshConnection =
     let testConnectionTask (creds: SshCredentials) : Task<ConnectionStatus> =
         testConnection creds |> Async.StartAsTask
 
-    /// Download a file via SCP with progress callback
+    /// Download a file via SCP with progress callback (legacy - single file)
     let downloadFile (creds: SshCredentials) (remotePath: string) (localPath: string) (onProgress: int64 -> unit) : Async<Result<unit, string>> =
         async {
             try
@@ -160,7 +160,183 @@ module SshConnection =
                 return Result.Error (sprintf "Download error: %s" ex.Message)
         }
 
-    /// List files in a remote directory matching a pattern
+    /// File info with size for progress tracking
+    type RemoteFileInfo = {
+        FullPath: string
+        RelativePath: string
+        Size: int64
+    }
+
+    /// Progress callback for bulk downloads
+    type BulkDownloadProgress = {
+        CurrentFileIndex: int
+        TotalFiles: int
+        CurrentFileName: string
+        BytesDownloadedTotal: int64
+        TotalBytes: int64
+    }
+
+    /// Download multiple files using a single SFTP connection (much faster)
+    let downloadFilesBulk
+        (creds: SshCredentials)
+        (files: RemoteFileInfo list)
+        (localBasePath: string)
+        (onProgress: BulkDownloadProgress -> unit)
+        : Async<Result<int * int, string>> = // Returns (success count, fail count)
+        async {
+            try
+                let connectionInfo = createConnectionInfo creds
+                use client = new Renci.SshNet.SftpClient(connectionInfo)
+                client.ConnectionInfo.Timeout <- TimeSpan.FromSeconds(30.0)
+                client.OperationTimeout <- TimeSpan.FromMinutes(5.0)
+                client.BufferSize <- 32768u  // 32KB buffer for better performance
+                client.Connect()
+
+                if not client.IsConnected then
+                    return Result.Error "Failed to connect to server"
+                else
+                    let totalBytes = files |> List.sumBy (fun f -> f.Size)
+                    let mutable bytesDownloaded = 0L
+                    let mutable successCount = 0
+                    let mutable failCount = 0
+                    let totalFiles = files.Length
+
+                    for (idx, fileInfo) in files |> List.indexed do
+                        try
+                            // Build local path
+                            let localRelativePath = fileInfo.RelativePath.Replace('/', Path.DirectorySeparatorChar)
+                            let localPath = Path.Combine(localBasePath, localRelativePath)
+
+                            // Ensure directory exists
+                            let localDir = Path.GetDirectoryName(localPath)
+                            if not (String.IsNullOrEmpty(localDir)) && not (Directory.Exists(localDir)) then
+                                Directory.CreateDirectory(localDir) |> ignore
+
+                            // Report progress before download
+                            onProgress {
+                                CurrentFileIndex = idx + 1
+                                TotalFiles = totalFiles
+                                CurrentFileName = fileInfo.RelativePath
+                                BytesDownloadedTotal = bytesDownloaded
+                                TotalBytes = totalBytes
+                            }
+
+                            // Download file
+                            use fileStream = File.Create(localPath)
+                            client.DownloadFile(fileInfo.FullPath, fileStream)
+                            bytesDownloaded <- bytesDownloaded + fileInfo.Size
+                            successCount <- successCount + 1
+                        with
+                        | _ -> failCount <- failCount + 1
+
+                    client.Disconnect()
+                    return Result.Ok (successCount, failCount)
+            with
+            | :? Renci.SshNet.Common.SshAuthenticationException as ex ->
+                return Result.Error (sprintf "Authentication failed: %s" ex.Message)
+            | :? System.Net.Sockets.SocketException as ex ->
+                return Result.Error (sprintf "Network error: %s" ex.Message)
+            | ex ->
+                return Result.Error (sprintf "Download error: %s" ex.Message)
+        }
+
+    /// List files recursively with their sizes (for progress tracking)
+    let listRemoteFilesWithSizes (creds: SshCredentials) (remotePath: string) : Async<Result<RemoteFileInfo list, string>> =
+        async {
+            try
+                let connectionInfo = createConnectionInfo creds
+                use client = new Renci.SshNet.SftpClient(connectionInfo)
+                client.ConnectionInfo.Timeout <- TimeSpan.FromSeconds(30.0)
+                client.Connect()
+
+                if not client.IsConnected then
+                    return Result.Error "Failed to connect to server"
+                else
+                    let basePath = remotePath.TrimEnd('/')
+                    let results = ResizeArray<RemoteFileInfo>()
+
+                    // Recursive function to list files
+                    let rec listDir (path: string) =
+                        try
+                            for entry in client.ListDirectory(path) do
+                                if entry.Name <> "." && entry.Name <> ".." then
+                                    if entry.IsDirectory then
+                                        listDir entry.FullName
+                                    elif entry.IsRegularFile then
+                                        let relativePath =
+                                            if entry.FullName.StartsWith(basePath + "/") then
+                                                entry.FullName.Substring(basePath.Length + 1)
+                                            else
+                                                entry.Name
+                                        results.Add({
+                                            FullPath = entry.FullName
+                                            RelativePath = relativePath
+                                            Size = entry.Length
+                                        })
+                        with _ -> ()
+
+                    listDir basePath
+                    client.Disconnect()
+                    return Result.Ok (results |> Seq.toList)
+            with
+            | ex ->
+                return Result.Error (sprintf "List files error: %s" ex.Message)
+        }
+
+    /// Remote file entry with full path and relative path for folder structure preservation
+    type RemoteFileEntry = {
+        FullPath: string      // Full path on remote server
+        RelativePath: string  // Path relative to the base folder (for local structure)
+    }
+
+    /// List files recursively in a remote directory (excludes directories)
+    let listRemoteFilesRecursive (creds: SshCredentials) (remotePath: string) : Async<Result<RemoteFileEntry list, string>> =
+        async {
+            try
+                let connectionInfo = createConnectionInfo creds
+                use client = new SshClient(connectionInfo)
+                client.ConnectionInfo.Timeout <- TimeSpan.FromSeconds(30.0)
+                client.Connect()
+
+                if not client.IsConnected then
+                    return Result.Error "Failed to connect to server"
+                else
+                    // Use find command to list only files (not directories) recursively
+                    // -type f = only files, not directories
+                    let basePath = remotePath.TrimEnd('/')
+                    let command = sprintf "find '%s' -type f 2>/dev/null || true" basePath
+                    use cmd = client.RunCommand(command)
+
+                    let files =
+                        cmd.Result.Split([| '\n' |], StringSplitOptions.RemoveEmptyEntries)
+                        |> Array.choose (fun fullPath ->
+                            let fullPath = fullPath.Trim()
+                            if String.IsNullOrWhiteSpace(fullPath) then
+                                None
+                            else
+                                // Calculate relative path from base
+                                let relativePath =
+                                    if fullPath.StartsWith(basePath + "/") then
+                                        fullPath.Substring(basePath.Length + 1)
+                                    elif fullPath = basePath then
+                                        Path.GetFileName(fullPath)
+                                    else
+                                        Path.GetFileName(fullPath)
+                                Some {
+                                    FullPath = fullPath
+                                    RelativePath = relativePath
+                                }
+                        )
+                        |> Array.toList
+
+                    client.Disconnect()
+                    return Result.Ok files
+            with
+            | ex ->
+                return Result.Error (sprintf "List files error: %s" ex.Message)
+        }
+
+    /// List files in a remote directory matching a pattern (non-recursive, files only)
     let listRemoteFiles (creds: SshCredentials) (remotePath: string) (pattern: string) : Async<Result<string list, string>> =
         async {
             try
@@ -172,12 +348,19 @@ module SshConnection =
                 if not client.IsConnected then
                     return Result.Error "Failed to connect to server"
                 else
-                    // Use ls command with pattern matching
-                    let command = sprintf "ls -1 %s/%s 2>/dev/null || true" remotePath pattern
+                    // Use find with maxdepth 1 to list only files (not directories) in this folder
+                    let basePath = remotePath.TrimEnd('/')
+                    let command =
+                        if pattern = "*" then
+                            sprintf "find '%s' -maxdepth 1 -type f 2>/dev/null || true" basePath
+                        else
+                            sprintf "find '%s' -maxdepth 1 -type f -name '%s' 2>/dev/null || true" basePath pattern
                     use cmd = client.RunCommand(command)
 
                     let files =
                         cmd.Result.Split([| '\n' |], StringSplitOptions.RemoveEmptyEntries)
+                        |> Array.map (fun s -> s.Trim())
+                        |> Array.filter (fun s -> not (String.IsNullOrWhiteSpace(s)))
                         |> Array.toList
 
                     client.Disconnect()
@@ -185,6 +368,59 @@ module SshConnection =
             with
             | ex ->
                 return Result.Error (sprintf "List files error: %s" ex.Message)
+        }
+
+    /// Directory entry from remote listing
+    type DirectoryEntry = {
+        Name: string
+        FullPath: string
+        IsDirectory: bool
+    }
+
+    /// List directories in a remote path
+    let listDirectories (creds: SshCredentials) (remotePath: string) : Async<Result<DirectoryEntry list, string>> =
+        async {
+            try
+                let connectionInfo = createConnectionInfo creds
+                use client = new SshClient(connectionInfo)
+                client.ConnectionInfo.Timeout <- TimeSpan.FromSeconds(10.0)
+                client.Connect()
+
+                if not client.IsConnected then
+                    return Result.Error "Failed to connect to server"
+                else
+                    // Use ls -la to get directory listing with details
+                    // -F adds / to directories, -1 one entry per line
+                    let command = sprintf "ls -1F %s 2>/dev/null || echo ''" remotePath
+                    use cmd = client.RunCommand(command)
+
+                    let entries =
+                        cmd.Result.Split([| '\n' |], StringSplitOptions.RemoveEmptyEntries)
+                        |> Array.choose (fun entry ->
+                            let entry = entry.Trim()
+                            if String.IsNullOrWhiteSpace(entry) then None
+                            elif entry.EndsWith("/") then
+                                // Directory
+                                let name = entry.TrimEnd('/')
+                                Some {
+                                    Name = name
+                                    FullPath = if remotePath = "/" then "/" + name else remotePath.TrimEnd('/') + "/" + name
+                                    IsDirectory = true
+                                }
+                            elif entry.EndsWith("@") || entry.EndsWith("*") || entry.EndsWith("|") then
+                                // Skip symlinks, executables, pipes
+                                None
+                            else
+                                // Regular file - skip for directory browsing
+                                None
+                        )
+                        |> Array.toList
+
+                    client.Disconnect()
+                    return Result.Ok entries
+            with
+            | ex ->
+                return Result.Error (sprintf "List directories error: %s" ex.Message)
         }
 
     /// Check if credentials are configured (doesn't verify they work)

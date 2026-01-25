@@ -13,6 +13,7 @@
     <Compile Include="Domain.fs" />
     <Compile Include="Services\Config.fs" />
     <Compile Include="Services\SshConnection.fs" />
+    <Compile Include="Services\LinuxBackup.fs" />
     <Compile Include="Services\Staleness.fs" />
     <Compile Include="Views\Components\StatusIndicator.fs" />
     <Compile Include="Views\Components\ProgressBar.fs" />

@@ -53,8 +53,8 @@ module SourceCard =
             )
         ]
 
-    /// Create a source card
-    let view (source: BackupSource) =
+    /// Create a source card with optional run callback
+    let view (source: BackupSource) (onRunNow: (unit -> unit) option) =
         Border.create [
             Border.cornerRadius Theme.Sizes.cardRadius
             Border.background Theme.Brushes.surface
@@ -208,7 +208,9 @@ module SourceCard =
                                     Button.fontSize Theme.Typography.fontSizeSm
                                     Button.fontWeight FontWeight.Bold
                                     Button.cornerRadius 8.0
-                                    Button.isEnabled false
+                                    Button.isEnabled (Option.isSome onRunNow)
+                                    Button.onClick (fun _ ->
+                                        onRunNow |> Option.iter (fun f -> f ()))
                                 ]
                             ]
                         ]

@@ -97,6 +97,32 @@ module Domain =
             elif age.TotalDays < float thresholds.StaleDays then Stale
             else Critical
 
+    /// Download result for a single folder (simplified for UI display)
+    type DownloadResult = {
+        FolderName: string
+        FilesDownloaded: int
+        FilesFailed: int
+        ErrorMessage: string option
+    }
+
+    /// Detailed download progress info
+    type DownloadProgressInfo = {
+        FolderName: string
+        CurrentFile: string
+        CurrentFileIndex: int
+        TotalFiles: int
+        BytesDownloaded: int64
+        TotalBytes: int64
+        Percent: int
+    }
+
+    /// State of download operations for the dashboard
+    type DownloadState =
+        | Idle
+        | Downloading of DownloadProgressInfo
+        | Completed of results: DownloadResult list
+        | Error of message: string
+
     /// Default application configuration
     let defaultConfig: AppConfig = {
         GoogleDrivePath = @"G:\"

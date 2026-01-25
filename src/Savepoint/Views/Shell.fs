@@ -3,11 +3,14 @@ namespace Savepoint.Views
 open System
 open Avalonia
 open Avalonia.Controls
+open Avalonia.Controls.ApplicationLifetimes
 open Avalonia.FuncUI
 open Avalonia.FuncUI.DSL
 open Avalonia.FuncUI.Types
 open Avalonia.Layout
 open Avalonia.Media
+open Avalonia.Platform.Storage
+open Avalonia.Threading
 open Savepoint
 open Savepoint.Domain
 open Savepoint.Services
@@ -44,23 +47,50 @@ module Shell =
             else
                 newState, Elmish.Cmd.none
         | DashboardMsg dashMsg ->
-            { state with DashboardState = Dashboard.update state.Config dashMsg state.DashboardState }, Elmish.Cmd.none
+            let (newDashboardState, dashCmd) = Dashboard.update state.Config dashMsg state.DashboardState
+            let shellCmd = dashCmd |> Elmish.Cmd.map DashboardMsg
+            { state with DashboardState = newDashboardState }, shellCmd
         | SettingsMsg settingsMsg ->
-            // Log to see if settings messages arrive
-            let logPath = System.IO.Path.Combine(
-                System.Environment.GetFolderPath(System.Environment.SpecialFolder.ApplicationData),
-                "Savepoint", "ssh.log")
-            let timestamp = System.DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff")
-            System.IO.File.AppendAllText(logPath, sprintf "[%s] Shell received SettingsMsg: %A\n" timestamp settingsMsg)
-            let (newSettingsState, settingsCmd) = Settings.update settingsMsg state.SettingsState
-            let newConfig =
-                match settingsMsg with
-                | Settings.Save -> Config.load ()
-                | _ -> state.Config
-            let shellCmd = settingsCmd |> Elmish.Cmd.map SettingsMsg
-            { state with
-                SettingsState = newSettingsState
-                Config = newConfig }, shellCmd
+            // Handle BrowseLocalFolder specially - need to show folder picker
+            match settingsMsg with
+            | Settings.BrowseLocalFolder ->
+                let browseCmd : Elmish.Cmd<Msg> =
+                    [ fun dispatch ->
+                        async {
+                            try
+                                // Get the main window from the application
+                                let app = Application.Current
+                                match app.ApplicationLifetime with
+                                | :? IClassicDesktopStyleApplicationLifetime as desktop ->
+                                    let window = desktop.MainWindow
+                                    let storageProvider = window.StorageProvider
+                                    let! folders =
+                                        storageProvider.OpenFolderPickerAsync(
+                                            FolderPickerOpenOptions(
+                                                Title = "Select Local Folder",
+                                                AllowMultiple = false
+                                            )
+                                        ) |> Async.AwaitTask
+                                    if folders.Count > 0 then
+                                        let folder = folders.[0]
+                                        let path = folder.Path.LocalPath
+                                        Dispatcher.UIThread.Post(fun () ->
+                                            dispatch (SettingsMsg (Settings.LocalFolderSelected path)))
+                                | _ -> ()
+                            with _ -> ()
+                        } |> Async.Start
+                    ]
+                state, browseCmd
+            | _ ->
+                let (newSettingsState, settingsCmd) = Settings.update settingsMsg state.SettingsState
+                let newConfig =
+                    match settingsMsg with
+                    | Settings.Save -> Config.load ()
+                    | _ -> state.Config
+                let shellCmd = settingsCmd |> Elmish.Cmd.map SettingsMsg
+                { state with
+                    SettingsState = newSettingsState
+                    Config = newConfig }, shellCmd
         | ConfigReloaded config ->
             { state with Config = config }, Elmish.Cmd.none
 
