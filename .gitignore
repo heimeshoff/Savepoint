@@ -1,0 +1,101 @@
+# Build results
+[Bb]in/
+[Oo]bj/
+[Oo]ut/
+[Ll]og/
+[Ll]ogs/
+
+# Visual Studio
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.userprefs
+
+# Rider
+.idea/
+
+# VS Code
+.vscode/
+
+# NuGet
+*.nupkg
+*.snupkg
+**/[Pp]ackages/*
+!**/[Pp]ackages/build/
+*.nuget.props
+*.nuget.targets
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# MSBuild
+*.log
+msbuild.binlog
+
+# Test Results
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+TestResult.xml
+nunit-*.xml
+
+# NCrunch
+_NCrunch_*
+.*crunch*.local.xml
+nCrunchTemp_*
+
+# Code coverage
+*.coverage
+*.coveragexml
+coverage*.json
+coverage*.xml
+coverage/
+
+# Publish
+publish/
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Linux
+*~
+
+# User-specific files
+*.rsuser
+*.tmp
+*.temp
+*.bak
+
+# JetBrains Rider
+*.sln.iml
+
+# Fable
+.fable/
+
+# Paket
+paket-files/
+.paket/
+
+# FAKE
+.fake/
+
+# dotnet tools
+.config/dotnet-tools.json
+
+# Local environment
+.env
+.env.local
+*.local.json
+
+# Application specific
+nul

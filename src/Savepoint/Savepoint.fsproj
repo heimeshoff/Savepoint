@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+    <ApplicationIcon></ApplicationIcon>
+    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Theme.fs" />
+    <Compile Include="Domain.fs" />
+    <Compile Include="Services\Config.fs" />
+    <Compile Include="Services\Staleness.fs" />
+    <Compile Include="Views\Components\StatusIndicator.fs" />
+    <Compile Include="Views\Components\ProgressBar.fs" />
+    <Compile Include="Views\Components\SourceCard.fs" />
+    <Compile Include="Views\Settings.fs" />
+    <Compile Include="Views\Dashboard.fs" />
+    <Compile Include="Views\Shell.fs" />
+    <Compile Include="Program.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.2.3" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.2.3" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.2.3" />
+    <PackageReference Include="Avalonia.FuncUI" Version="1.5.2" />
+    <PackageReference Include="Avalonia.FuncUI.Elmish" Version="1.5.2" />
+    <PackageReference Include="FSharp.SystemTextJson" Version="1.3.13" />
+  </ItemGroup>
+
+</Project>
