@@ -53,6 +53,7 @@ module Domain =
         LinuxServerPort: int                    // Default 22
         LinuxServerUser: string option          // SSH username
         LinuxServerKeyPath: string option       // Path to private key
+        LinuxServerPassphrase: string option    // Passphrase for encrypted SSH key
         LinuxServerFolders: LinuxFolder list    // Configured backup folders
     }
 
@@ -105,5 +106,6 @@ module Domain =
         LinuxServerPort = 22
         LinuxServerUser = None
         LinuxServerKeyPath = None
+        LinuxServerPassphrase = None
         LinuxServerFolders = []
     }

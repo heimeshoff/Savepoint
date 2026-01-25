@@ -7,6 +7,7 @@ open Avalonia.FuncUI
 open Avalonia.FuncUI.DSL
 open Avalonia.Layout
 open Avalonia.Media
+open Avalonia.Threading
 open Savepoint
 open Savepoint.Domain
 open Savepoint.Services
@@ -45,6 +46,7 @@ module Settings =
         | SetLinuxServerPort of string
         | SetLinuxServerUser of string
         | SetLinuxServerKeyPath of string
+        | SetPassphrase of string
         | TestConnection
         | TestConnectionResult of SshConnection.ConnectionStatus
         | ToggleNewFolderForm
@@ -114,6 +116,12 @@ module Settings =
                 IsDirty = true
                 SaveStatus = None
                 ConnectionTestStatus = NotTested }, Elmish.Cmd.none
+        | SetPassphrase pass ->
+            { state with
+                Config = { state.Config with LinuxServerPassphrase = if String.IsNullOrWhiteSpace(pass) then None else Some pass }
+                IsDirty = true
+                SaveStatus = None
+                ConnectionTestStatus = NotTested }, Elmish.Cmd.none
         | TestConnection ->
             let canTest =
                 SshConnection.isConfigured
@@ -125,21 +133,32 @@ module Settings =
                 let port = state.Config.LinuxServerPort
                 let user = state.Config.LinuxServerUser.Value
                 let keyPath = state.Config.LinuxServerKeyPath.Value
-                let creds = SshConnection.createCredentials host port user keyPath None
-                let testCmd =
-                    Elmish.Cmd.OfAsync.perform
-                        SshConnection.testConnection
-                        creds
-                        TestConnectionResult
+                let creds = SshConnection.createCredentials host port user keyPath state.Config.LinuxServerPassphrase
+                // Custom command that explicitly dispatches on UI thread
+                let testCmd : Elmish.Cmd<Msg> =
+                    [ fun dispatch ->
+                        async {
+                            let! result = SshConnection.testConnection creds
+                            // Dispatch on UI thread
+                            Dispatcher.UIThread.Post(fun () -> dispatch (TestConnectionResult result))
+                        } |> Async.Start
+                    ]
                 { state with ConnectionTestStatus = Testing }, testCmd
             else
                 { state with ConnectionTestStatus = TestFailed "Please fill in all connection fields" }, Elmish.Cmd.none
         | TestConnectionResult status ->
+            // Log to the SSH log file so we can see if this message arrives
+            let logPath = System.IO.Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "Savepoint", "ssh.log")
+            let timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff")
+            System.IO.File.AppendAllText(logPath, sprintf "[%s] TestConnectionResult received: %A\n" timestamp status)
             let newStatus =
                 match status with
                 | SshConnection.Connected -> TestSuccess
                 | SshConnection.Disconnected -> TestFailed "Server disconnected"
                 | SshConnection.Error msg -> TestFailed msg
+            System.IO.File.AppendAllText(logPath, sprintf "[%s] Setting ConnectionTestStatus to: %A\n" timestamp newStatus)
             { state with ConnectionTestStatus = newStatus }, Elmish.Cmd.none
         | ToggleNewFolderForm ->
             { state with NewFolder = { state.NewFolder with IsExpanded = not state.NewFolder.IsExpanded } }, Elmish.Cmd.none
@@ -230,6 +249,33 @@ module Settings =
                     TextBox.padding (Thickness(8.0, 6.0, 8.0, 6.0))
                     TextBox.cornerRadius 6.0
                     TextBox.fontSize Theme.Typography.fontSizeSm
+                    TextBox.onTextChanged onChange
+                ]
+            ]
+        ]
+
+    let private createPasswordField (label: string) (value: string) (placeholder: string) (onChange: string -> unit) =
+        StackPanel.create [
+            StackPanel.spacing 8.0
+            StackPanel.margin (Thickness(0.0, 0.0, 0.0, 16.0))
+            StackPanel.children [
+                TextBlock.create [
+                    TextBlock.text label
+                    TextBlock.foreground Theme.Brushes.textSecondary
+                    TextBlock.fontSize Theme.Typography.fontSizeSm
+                    TextBlock.fontWeight FontWeight.Medium
+                ]
+                TextBox.create [
+                    TextBox.text value
+                    TextBox.watermark placeholder
+                    TextBox.passwordChar '*'
+                    TextBox.background (SolidColorBrush(Color.FromArgb(byte 13, byte 255, byte 255, byte 255)))
+                    TextBox.foreground Theme.Brushes.textPrimary
+                    TextBox.borderBrush Theme.Brushes.border
+                    TextBox.borderThickness 1.0
+                    TextBox.padding (Thickness(12.0, 10.0, 12.0, 10.0))
+                    TextBox.cornerRadius 8.0
+                    TextBox.fontSize Theme.Typography.fontSizeMd
                     TextBox.onTextChanged onChange
                 ]
             ]
@@ -378,6 +424,8 @@ module Settings =
 
     let view (state: State) (dispatch: Msg -> unit) =
         ScrollViewer.create [
+            // Set dataContext to force Avalonia to recognize state change
+            ScrollViewer.dataContext (box state.ConnectionTestStatus)
             ScrollViewer.content (
                 StackPanel.create [
                     StackPanel.margin (Thickness(0.0, 0.0, 0.0, 32.0))
@@ -475,6 +523,12 @@ module Settings =
                                             @"e.g., C:\Users\you\.ssh\id_rsa"
                                             (fun v -> dispatch (SetLinuxServerKeyPath v))
 
+                                        createPasswordField
+                                            "SSH Key Passphrase (if required)"
+                                            (state.Config.LinuxServerPassphrase |> Option.defaultValue "")
+                                            "Enter passphrase for encrypted key"
+                                            (fun v -> dispatch (SetPassphrase v))
+
                                         // Test Connection button and status
                                         StackPanel.create [
                                             StackPanel.orientation Orientation.Horizontal
@@ -496,56 +550,46 @@ module Settings =
                                                     Button.isEnabled (state.ConnectionTestStatus <> Testing)
                                                     Button.onClick (fun _ -> dispatch TestConnection)
                                                 ]
-                                                match state.ConnectionTestStatus with
-                                                | NotTested -> ()
-                                                | Testing ->
-                                                    TextBlock.create [
-                                                        TextBlock.text "Connecting..."
-                                                        TextBlock.foreground Theme.Brushes.textMuted
-                                                        TextBlock.fontSize Theme.Typography.fontSizeSm
-                                                        TextBlock.verticalAlignment VerticalAlignment.Center
-                                                    ]
-                                                | TestSuccess ->
-                                                    StackPanel.create [
-                                                        StackPanel.orientation Orientation.Horizontal
-                                                        StackPanel.spacing 8.0
-                                                        StackPanel.verticalAlignment VerticalAlignment.Center
-                                                        StackPanel.children [
-                                                            Border.create [
-                                                                Border.width 8.0
-                                                                Border.height 8.0
-                                                                Border.cornerRadius 4.0
-                                                                Border.background Theme.Brushes.accentGreen
-                                                            ]
-                                                            TextBlock.create [
-                                                                TextBlock.text "Connected"
-                                                                TextBlock.foreground Theme.Brushes.accentGreen
-                                                                TextBlock.fontSize Theme.Typography.fontSizeSm
-                                                                TextBlock.fontWeight FontWeight.Medium
-                                                            ]
+                                                // Connection status display
+                                                StackPanel.create [
+                                                    StackPanel.orientation Orientation.Horizontal
+                                                    StackPanel.spacing 8.0
+                                                    StackPanel.verticalAlignment VerticalAlignment.Center
+                                                    StackPanel.isVisible (state.ConnectionTestStatus <> NotTested)
+                                                    StackPanel.children [
+                                                        Border.create [
+                                                            Border.width 8.0
+                                                            Border.height 8.0
+                                                            Border.cornerRadius 4.0
+                                                            Border.background (
+                                                                match state.ConnectionTestStatus with
+                                                                | TestSuccess -> Theme.Brushes.accentGreen
+                                                                | TestFailed _ -> Theme.Brushes.accentRed
+                                                                | _ -> Theme.Brushes.textMuted
+                                                            )
+                                                            Border.isVisible (state.ConnectionTestStatus <> Testing)
+                                                        ]
+                                                        TextBlock.create [
+                                                            TextBlock.text (
+                                                                match state.ConnectionTestStatus with
+                                                                | NotTested -> ""
+                                                                | Testing -> "Connecting..."
+                                                                | TestSuccess -> "Connected"
+                                                                | TestFailed msg -> msg
+                                                            )
+                                                            TextBlock.foreground (
+                                                                match state.ConnectionTestStatus with
+                                                                | TestSuccess -> Theme.Brushes.accentGreen
+                                                                | TestFailed _ -> Theme.Brushes.accentRed
+                                                                | _ -> Theme.Brushes.textMuted
+                                                            )
+                                                            TextBlock.fontSize Theme.Typography.fontSizeSm
+                                                            TextBlock.fontWeight FontWeight.Medium
+                                                            TextBlock.textWrapping TextWrapping.Wrap
+                                                            TextBlock.maxWidth 400.0
                                                         ]
                                                     ]
-                                                | TestFailed msg ->
-                                                    StackPanel.create [
-                                                        StackPanel.orientation Orientation.Horizontal
-                                                        StackPanel.spacing 8.0
-                                                        StackPanel.verticalAlignment VerticalAlignment.Center
-                                                        StackPanel.children [
-                                                            Border.create [
-                                                                Border.width 8.0
-                                                                Border.height 8.0
-                                                                Border.cornerRadius 4.0
-                                                                Border.background Theme.Brushes.accentRed
-                                                            ]
-                                                            TextBlock.create [
-                                                                TextBlock.text msg
-                                                                TextBlock.foreground Theme.Brushes.accentRed
-                                                                TextBlock.fontSize Theme.Typography.fontSizeSm
-                                                                TextBlock.textWrapping TextWrapping.Wrap
-                                                                TextBlock.maxWidth 400.0
-                                                            ]
-                                                        ]
-                                                    ]
+                                                ]
                                             ]
                                         ]
 

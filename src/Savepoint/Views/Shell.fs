@@ -46,6 +46,12 @@ module Shell =
         | DashboardMsg dashMsg ->
             { state with DashboardState = Dashboard.update state.Config dashMsg state.DashboardState }, Elmish.Cmd.none
         | SettingsMsg settingsMsg ->
+            // Log to see if settings messages arrive
+            let logPath = System.IO.Path.Combine(
+                System.Environment.GetFolderPath(System.Environment.SpecialFolder.ApplicationData),
+                "Savepoint", "ssh.log")
+            let timestamp = System.DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff")
+            System.IO.File.AppendAllText(logPath, sprintf "[%s] Shell received SettingsMsg: %A\n" timestamp settingsMsg)
             let (newSettingsState, settingsCmd) = Settings.update settingsMsg state.SettingsState
             let newConfig =
                 match settingsMsg with
