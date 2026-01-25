@@ -16,25 +16,38 @@ open Savepoint.Views.Components
 /// Dashboard view showing backup source overview
 module Dashboard =
 
+    type LinuxServerStatus =
+        | NotConfigured
+        | Configured of folderCount: int
+
     type State = {
         Sources: BackupSource list
         LastRefresh: DateTime
+        LinuxServerStatus: LinuxServerStatus
     }
 
     type Msg =
         | Refresh
         | RefreshComplete of BackupSource list
 
+    let private getLinuxServerStatus (config: AppConfig) =
+        match config.LinuxServerHost with
+        | Some host when not (String.IsNullOrWhiteSpace(host)) ->
+            Configured config.LinuxServerFolders.Length
+        | _ -> NotConfigured
+
     let init (config: AppConfig) =
         { Sources = Staleness.scanAll config
-          LastRefresh = DateTime.Now }
+          LastRefresh = DateTime.Now
+          LinuxServerStatus = getLinuxServerStatus config }
 
     let update (config: AppConfig) (msg: Msg) (state: State) : State =
         match msg with
         | Refresh ->
             { state with
                 Sources = Staleness.scanAll config
-                LastRefresh = DateTime.Now }
+                LastRefresh = DateTime.Now
+                LinuxServerStatus = getLinuxServerStatus config }
         | RefreshComplete sources ->
             { state with Sources = sources; LastRefresh = DateTime.Now }
 
@@ -245,7 +258,7 @@ module Dashboard =
 
                         // System metrics row
                         Grid.create [
-                            Grid.columnDefinitions "*, 16, *, 16, *"
+                            Grid.columnDefinitions "*, 16, *, 16, *, 16, *"
                             Grid.margin (Thickness(0.0, 0.0, 0.0, 32.0))
                             Grid.children [
                                 Border.create [
@@ -263,8 +276,22 @@ module Dashboard =
                                 Border.create [
                                     Grid.column 4
                                     Border.child (
+                                        let (linuxText, linuxColor) =
+                                            match state.LinuxServerStatus with
+                                            | NotConfigured -> ("Not Configured", Theme.Brushes.textMuted :> IBrush)
+                                            | Configured count -> (sprintf "%d Folders" count, Theme.Brushes.secondary :> IBrush)
+                                        createMetricCard "L" Theme.Brushes.secondary "LINUX SERVER" linuxText (
+                                            match state.LinuxServerStatus with
+                                            | NotConfigured -> None
+                                            | Configured _ -> Some (createHealthBadge "Online" Theme.Brushes.accentGreen)
+                                        )
+                                    )
+                                ]
+                                Border.create [
+                                    Grid.column 6
+                                    Border.child (
                                         let (healthText, healthColor) = getSystemHealth state.Sources
-                                        createMetricCard "H" Theme.Brushes.secondary "SYSTEM STATUS" healthText (Some (createHealthBadge healthText healthColor))
+                                        createMetricCard "H" Theme.Brushes.accentGreen "SYSTEM STATUS" healthText (Some (createHealthBadge healthText healthColor))
                                     )
                                 ]
                             ]

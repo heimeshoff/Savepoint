@@ -24,6 +24,14 @@ module Domain =
         | GoogleTakeout
         | LinuxServer of host: string
 
+    /// Configuration for a Linux server backup folder
+    type LinuxFolder = {
+        RemotePath: string      // e.g., "/home/user/backups"
+        LocalPath: string       // e.g., "G:\My Drive\linux-backups\server"
+        LocalName: string       // Display name, e.g., "Server Backups"
+        FilePattern: string     // e.g., "*.tar.gz" to find latest file
+    }
+
     /// Represents a backup source and its current status
     type BackupSource = {
         Name: string
@@ -42,7 +50,10 @@ module Domain =
         NotionPath: string
         GoogleTakeoutPath: string
         LinuxServerHost: string option
-        LinuxServerFolders: string list
+        LinuxServerPort: int                    // Default 22
+        LinuxServerUser: string option          // SSH username
+        LinuxServerKeyPath: string option       // Path to private key
+        LinuxServerFolders: LinuxFolder list    // Configured backup folders
     }
 
     /// Represents a navigation page in the app
@@ -91,5 +102,8 @@ module Domain =
         NotionPath = @"G:\My Drive\notion"
         GoogleTakeoutPath = @"G:\My Drive\google-takeout"
         LinuxServerHost = None
+        LinuxServerPort = 22
+        LinuxServerUser = None
+        LinuxServerKeyPath = None
         LinuxServerFolders = []
     }

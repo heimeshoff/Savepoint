@@ -85,27 +85,37 @@ module Staleness =
             StorageTotalMB = Some 100000L  // 100GB placeholder
         }
 
-    /// Create a Linux server backup source (placeholder for Phase 3)
-    let createLinuxSource (host: string option) : BackupSource =
+    /// Scan a single Linux folder by checking LOCAL files (downloaded to GDrive)
+    let scanLinuxFolder (host: string) (folder: LinuxFolder) : BackupSource =
+        let latestBackup = findLatestFile folder.LocalPath folder.FilePattern
+        let storageUsed = getTotalSize folder.LocalPath folder.FilePattern
+
         {
-            Name = "Linux Server (LAN)"
-            Description = "Full System Mirror"
-            SourceType = LinuxServer (host |> Option.defaultValue "")
-            Path = None
-            LastBackup = None
-            Staleness = Unknown
-            StorageUsedMB = None
-            StorageTotalMB = None
+            Name = folder.LocalName
+            Description = sprintf "From %s:%s" host folder.RemotePath
+            SourceType = LinuxServer host
+            Path = Some folder.LocalPath
+            LastBackup = latestBackup
+            Staleness = calculateStaleness Thresholds.linuxServer latestBackup
+            StorageUsedMB = storageUsed |> Option.map (fun s -> s / (1024L * 1024L))
+            StorageTotalMB = None  // Linux folders don't have a quota
         }
+
+    /// Scan all configured Linux folders
+    let scanLinuxFolders (config: AppConfig) : BackupSource list =
+        match config.LinuxServerHost with
+        | Some host when not (System.String.IsNullOrWhiteSpace(host)) ->
+            config.LinuxServerFolders
+            |> List.map (scanLinuxFolder host)
+        | _ -> []
 
     /// Scan all backup sources based on configuration
     let scanAll (config: AppConfig) : BackupSource list =
         [
             scanNotion config.NotionPath
             scanGoogleTakeout config.GoogleTakeoutPath
-            // Linux server is placeholder for now
-            if config.LinuxServerHost.IsSome then
-                createLinuxSource config.LinuxServerHost
+            // Scan all configured Linux folders
+            yield! scanLinuxFolders config
         ]
 
     /// Format a DateTime as a relative time string

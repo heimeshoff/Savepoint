@@ -35,27 +35,28 @@ module Shell =
           DashboardState = Dashboard.init config
           SettingsState = Settings.init () }
 
-    let update (msg: Msg) (state: State) : State =
+    let update (msg: Msg) (state: State) : State * Elmish.Cmd<Msg> =
         match msg with
         | NavigateTo page ->
             let newState = { state with CurrentPage = page }
             if page = Overview then
-                { newState with DashboardState = Dashboard.init state.Config }
+                { newState with DashboardState = Dashboard.init state.Config }, Elmish.Cmd.none
             else
-                newState
+                newState, Elmish.Cmd.none
         | DashboardMsg dashMsg ->
-            { state with DashboardState = Dashboard.update state.Config dashMsg state.DashboardState }
+            { state with DashboardState = Dashboard.update state.Config dashMsg state.DashboardState }, Elmish.Cmd.none
         | SettingsMsg settingsMsg ->
-            let newSettingsState = Settings.update settingsMsg state.SettingsState
+            let (newSettingsState, settingsCmd) = Settings.update settingsMsg state.SettingsState
             let newConfig =
                 match settingsMsg with
                 | Settings.Save -> Config.load ()
                 | _ -> state.Config
+            let shellCmd = settingsCmd |> Elmish.Cmd.map SettingsMsg
             { state with
                 SettingsState = newSettingsState
-                Config = newConfig }
+                Config = newConfig }, shellCmd
         | ConfigReloaded config ->
-            { state with Config = config }
+            { state with Config = config }, Elmish.Cmd.none
 
     /// Create a navigation item
     let private navItem (icon: string) (label: string) (page: Page) (currentPage: Page) (dispatch: Msg -> unit) =
