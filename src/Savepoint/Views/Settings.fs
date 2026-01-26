@@ -47,6 +47,11 @@ module Settings =
         RemoteBrowser: RemoteBrowserState
     }
 
+    type PathField =
+        | GoogleDrivePath
+        | NotionPath
+        | GoogleTakeoutPath
+
     type Msg =
         | SetGoogleDrivePath of string
         | SetNotionPath of string
@@ -75,6 +80,9 @@ module Settings =
         // Local folder browser
         | BrowseLocalFolder
         | LocalFolderSelected of string
+        // Path field folder browser
+        | BrowseForPath of PathField
+        | PathSelected of PathField * string
 
     let private emptyNewFolder = {
         LocalName = ""
@@ -308,6 +316,18 @@ module Settings =
         | LocalFolderSelected path ->
             { state with NewFolder = { state.NewFolder with LocalPath = path } }, Elmish.Cmd.none
 
+        | BrowseForPath _ ->
+            // Handled at Shell level to access the window for folder picker
+            state, Elmish.Cmd.none
+
+        | PathSelected (field, path) ->
+            let newConfig =
+                match field with
+                | GoogleDrivePath -> { state.Config with GoogleDrivePath = path }
+                | NotionPath -> { state.Config with NotionPath = path }
+                | GoogleTakeoutPath -> { state.Config with GoogleTakeoutPath = path }
+            { state with Config = newConfig; IsDirty = true; SaveStatus = None }, Elmish.Cmd.none
+
     let private createTextField (label: string) (value: string) (placeholder: string) (onChange: string -> unit) =
         StackPanel.create [
             StackPanel.spacing 8.0
@@ -330,6 +350,48 @@ module Settings =
                     TextBox.cornerRadius 8.0
                     TextBox.fontSize Theme.Typography.fontSizeMd
                     TextBox.onTextChanged onChange
+                ]
+            ]
+        ]
+
+    let private createTextFieldWithBrowse (label: string) (value: string) (placeholder: string) (onChange: string -> unit) (onBrowse: unit -> unit) =
+        StackPanel.create [
+            StackPanel.spacing 8.0
+            StackPanel.margin (Thickness(0.0, 0.0, 0.0, 16.0))
+            StackPanel.children [
+                TextBlock.create [
+                    TextBlock.text label
+                    TextBlock.foreground Theme.Brushes.textSecondary
+                    TextBlock.fontSize Theme.Typography.fontSizeSm
+                    TextBlock.fontWeight FontWeight.Medium
+                ]
+                DockPanel.create [
+                    DockPanel.children [
+                        Button.create [
+                            DockPanel.dock Dock.Right
+                            Button.content "Browse"
+                            Button.padding (Thickness(12.0, 10.0, 12.0, 10.0))
+                            Button.margin (Thickness(8.0, 0.0, 0.0, 0.0))
+                            Button.background (SolidColorBrush(Color.FromArgb(byte 25, Theme.secondary.R, Theme.secondary.G, Theme.secondary.B)))
+                            Button.foreground Theme.Brushes.secondary
+                            Button.fontSize Theme.Typography.fontSizeSm
+                            Button.fontWeight FontWeight.Medium
+                            Button.cornerRadius 8.0
+                            Button.onClick (fun _ -> onBrowse ())
+                        ]
+                        TextBox.create [
+                            TextBox.text value
+                            TextBox.watermark placeholder
+                            TextBox.background (SolidColorBrush(Color.FromArgb(byte 13, byte 255, byte 255, byte 255)))
+                            TextBox.foreground Theme.Brushes.textPrimary
+                            TextBox.borderBrush Theme.Brushes.border
+                            TextBox.borderThickness 1.0
+                            TextBox.padding (Thickness(12.0, 10.0, 12.0, 10.0))
+                            TextBox.cornerRadius 8.0
+                            TextBox.fontSize Theme.Typography.fontSizeMd
+                            TextBox.onTextChanged onChange
+                        ]
+                    ]
                 ]
             ]
         ]
@@ -769,23 +831,26 @@ module Settings =
                                                     TextBlock.margin (Thickness(0.0, 0.0, 0.0, 20.0))
                                                 ]
 
-                                                createTextField
+                                                createTextFieldWithBrowse
                                                     "Google Drive Path"
                                                     state.Config.GoogleDrivePath
                                                     @"e.g., G:\"
                                                     (fun v -> dispatch (SetGoogleDrivePath v))
+                                                    (fun () -> dispatch (BrowseForPath GoogleDrivePath))
 
-                                                createTextField
+                                                createTextFieldWithBrowse
                                                     "Notion Export Folder"
                                                     state.Config.NotionPath
                                                     @"e.g., G:\My Drive\notion"
                                                     (fun v -> dispatch (SetNotionPath v))
+                                                    (fun () -> dispatch (BrowseForPath NotionPath))
 
-                                                createTextField
+                                                createTextFieldWithBrowse
                                                     "Google Takeout Folder"
                                                     state.Config.GoogleTakeoutPath
                                                     @"e.g., G:\My Drive\google-takeout"
                                                     (fun v -> dispatch (SetGoogleTakeoutPath v))
+                                                    (fun () -> dispatch (BrowseForPath GoogleTakeoutPath))
                                             ]
                                         ]
                                     )

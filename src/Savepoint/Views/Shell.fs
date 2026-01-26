@@ -51,7 +51,7 @@ module Shell =
             let shellCmd = dashCmd |> Elmish.Cmd.map DashboardMsg
             { state with DashboardState = newDashboardState }, shellCmd
         | SettingsMsg settingsMsg ->
-            // Handle BrowseLocalFolder specially - need to show folder picker
+            // Handle folder browser messages specially - need to show folder picker
             match settingsMsg with
             | Settings.BrowseLocalFolder ->
                 let browseCmd : Elmish.Cmd<Msg> =
@@ -76,6 +76,33 @@ module Shell =
                                         let path = folder.Path.LocalPath
                                         Dispatcher.UIThread.Post(fun () ->
                                             dispatch (SettingsMsg (Settings.LocalFolderSelected path)))
+                                | _ -> ()
+                            with _ -> ()
+                        } |> Async.Start
+                    ]
+                state, browseCmd
+            | Settings.BrowseForPath field ->
+                let browseCmd : Elmish.Cmd<Msg> =
+                    [ fun dispatch ->
+                        async {
+                            try
+                                let app = Application.Current
+                                match app.ApplicationLifetime with
+                                | :? IClassicDesktopStyleApplicationLifetime as desktop ->
+                                    let window = desktop.MainWindow
+                                    let storageProvider = window.StorageProvider
+                                    let! folders =
+                                        storageProvider.OpenFolderPickerAsync(
+                                            FolderPickerOpenOptions(
+                                                Title = "Select Folder",
+                                                AllowMultiple = false
+                                            )
+                                        ) |> Async.AwaitTask
+                                    if folders.Count > 0 then
+                                        let folder = folders.[0]
+                                        let path = folder.Path.LocalPath
+                                        Dispatcher.UIThread.Post(fun () ->
+                                            dispatch (SettingsMsg (Settings.PathSelected (field, path))))
                                 | _ -> ()
                             with _ -> ()
                         } |> Async.Start

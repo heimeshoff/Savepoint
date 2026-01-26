@@ -81,6 +81,7 @@ None currently.
 
 | Timestamp | Change |
 |-----------|--------|
+| 2026-01-26 | Added "Browse" button to path configuration fields with folder picker dialog |
 | 2026-01-25 | Removed visible borders from cards, sidebar, and header for cleaner UI |
 
 ---
