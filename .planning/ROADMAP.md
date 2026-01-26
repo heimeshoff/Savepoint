@@ -78,31 +78,31 @@
 
 ---
 
-## Phase 3: Linux Server Integration
+## Phase 3: Linux Server Integration ✓ COMPLETE
 
 **Goal**: Full backup workflow operational
 
 ### Tasks
-- [ ] Implement SSH connection service
-  - [ ] Test connectivity (ping/ssh)
-  - [ ] Support key-based auth
-  - [ ] Support password auth
-- [ ] Implement SCP file transfer
-  - [ ] Download files/folders
-  - [ ] Progress callback
-  - [ ] Error handling
-- [ ] Add Linux server status to dashboard
-- [ ] Create folder configuration UI
-  - [ ] Add/remove remote paths
-  - [ ] Name local destination folders
-- [ ] Implement per-folder staleness tracking
-  - [ ] Store last sync timestamps
-  - [ ] Display staleness per folder
-- [ ] Add Linux backup execution
-  - [ ] Copy selected folders
-  - [ ] Handle partial failures
+- [x] Implement SSH connection service
+  - [x] Test connectivity (ping/ssh)
+  - [x] Support key-based auth
+  - [x] Support password auth
+- [x] Implement SCP file transfer
+  - [x] Download files/folders
+  - [x] Progress callback
+  - [x] Error handling
+- [x] Add Linux server status to dashboard
+- [x] Create folder configuration UI
+  - [x] Add/remove remote paths
+  - [x] Name local destination folders
+- [x] Implement per-folder staleness tracking
+  - [x] Store last sync timestamps
+  - [x] Display staleness per folder
+- [x] Add Linux backup execution
+  - [x] Copy selected folders
+  - [x] Handle partial failures
 
-### Acceptance Criteria
+### Acceptance Criteria ✓
 - Dashboard shows Linux server connectivity
 - Can configure multiple folders to backup
 - Each folder shows staleness status

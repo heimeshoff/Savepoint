@@ -13,7 +13,7 @@
 |-------|--------|----------|
 | 1 - Foundation & Dashboard | Complete | 100% |
 | 2 - VeraCrypt & Robocopy | Not Started | 0% |
-| 3 - Linux Integration | Not Started | 0% |
+| 3 - Linux Integration | Complete | 100% |
 | 4 - Orchestration | Not Started | 0% |
 
 ---
@@ -89,9 +89,11 @@ None currently.
 ## Notes
 
 - Phase 1 implementation complete
+- Phase 3 (Linux Integration) complete
 - App builds and runs successfully
 - Dark theme matches design inspiration
 - Source cards show staleness indicators (Unknown until configured paths exist)
 - Settings page allows path configuration
 - Configuration persisted to %APPDATA%/Savepoint/config.json
-- Ready to begin Phase 2 (VeraCrypt & Robocopy) or Phase 3 (Linux Integration)
+- SSH/SCP connection to Linux server working
+- Ready to begin Phase 2 (VeraCrypt & Robocopy)

@@ -7,11 +7,12 @@ open Savepoint.Domain
 /// Staleness detection service for backup sources
 module Staleness =
 
-    /// Find the most recent file matching a pattern in a directory
+    /// Find the most recent file matching a pattern in a directory (searches subdirectories)
     let private findLatestFile (directory: string) (pattern: string) : DateTime option =
         if Directory.Exists(directory) then
             try
-                let files = Directory.GetFiles(directory, pattern)
+                // Search recursively to find files in subdirectories
+                let files = Directory.GetFiles(directory, pattern, SearchOption.AllDirectories)
                 if files.Length > 0 then
                     files
                     |> Array.map (fun f -> FileInfo(f).LastWriteTime)
@@ -24,11 +25,12 @@ module Staleness =
         else
             None
 
-    /// Get the total size of files matching a pattern
+    /// Get the total size of files matching a pattern (searches subdirectories)
     let private getTotalSize (directory: string) (pattern: string) : int64 option =
         if Directory.Exists(directory) then
             try
-                let files = Directory.GetFiles(directory, pattern)
+                // Search recursively to include files in subdirectories
+                let files = Directory.GetFiles(directory, pattern, SearchOption.AllDirectories)
                 if files.Length > 0 then
                     files
                     |> Array.map (fun f -> FileInfo(f).Length)
