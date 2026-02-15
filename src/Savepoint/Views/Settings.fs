@@ -45,12 +45,17 @@ module Settings =
         ConnectionTestStatus: ConnectionTestStatus
         NewFolder: NewFolderState
         RemoteBrowser: RemoteBrowserState
+        AvailablePartitions: PartitionService.PartitionInfo list
+        IsLoadingPartitions: bool
     }
 
     type PathField =
         | GoogleDrivePath
         | NotionPath
         | GoogleTakeoutPath
+        | VeraCryptExePath
+        | RobocopySourcePath
+        | RobocopyDestinationPath
 
     type Msg =
         | SetGoogleDrivePath of string
@@ -83,6 +88,15 @@ module Settings =
         // Path field folder browser
         | BrowseForPath of PathField
         | PathSelected of PathField * string
+        // VeraCrypt configuration
+        | SetVeraCryptExePath of string
+        | SetVeraCryptPartition of string  // device path
+        | SetVeraCryptMountLetter of string
+        | LoadPartitions
+        | PartitionsLoaded of PartitionService.PartitionInfo list
+        // Robocopy configuration
+        | SetRobocopySourcePath of string
+        | SetRobocopyDestinationPath of string
 
     let private emptyNewFolder = {
         LocalName = ""
@@ -100,12 +114,24 @@ module Settings =
     }
 
     let init () =
-        { Config = Config.load ()
-          SaveStatus = None
-          IsDirty = false
-          ConnectionTestStatus = NotTested
-          NewFolder = emptyNewFolder
-          RemoteBrowser = emptyRemoteBrowser }
+        let state = 
+            { Config = Config.load ()
+              SaveStatus = None
+              IsDirty = false
+              ConnectionTestStatus = NotTested
+              NewFolder = emptyNewFolder
+              RemoteBrowser = emptyRemoteBrowser
+              AvailablePartitions = []
+              IsLoadingPartitions = false }
+        // Auto-load partitions on init
+        let loadPartitionsCmd : Elmish.Cmd<Msg> =
+            [ fun dispatch ->
+                async {
+                    let! partitions = PartitionService.getPartitionsAsync ()
+                    Avalonia.Threading.Dispatcher.UIThread.Post(fun () -> dispatch (PartitionsLoaded partitions))
+                } |> Async.Start
+            ]
+        state, loadPartitionsCmd
 
     let update (msg: Msg) (state: State) : State * Elmish.Cmd<Msg> =
         match msg with
@@ -232,7 +258,7 @@ module Settings =
             | Result.Error msg ->
                 { state with SaveStatus = Some (sprintf "Error: %s" msg) }, Elmish.Cmd.none
         | Reload ->
-            { state with Config = Config.load (); IsDirty = false; SaveStatus = None; ConnectionTestStatus = NotTested; NewFolder = emptyNewFolder; RemoteBrowser = emptyRemoteBrowser }, Elmish.Cmd.none
+            { state with Config = Config.load (); IsDirty = false; SaveStatus = None; ConnectionTestStatus = NotTested; NewFolder = emptyNewFolder; RemoteBrowser = emptyRemoteBrowser; AvailablePartitions = []; IsLoadingPartitions = false }, Elmish.Cmd.none
 
         // Remote folder browser
         | OpenRemoteBrowser ->
@@ -326,7 +352,67 @@ module Settings =
                 | GoogleDrivePath -> { state.Config with GoogleDrivePath = path }
                 | NotionPath -> { state.Config with NotionPath = path }
                 | GoogleTakeoutPath -> { state.Config with GoogleTakeoutPath = path }
+                | VeraCryptExePath ->
+                    let vc = state.Config.VeraCrypt |> Option.defaultValue VeraCrypt.defaultConfig
+                    { state.Config with VeraCrypt = Some { vc with ExePath = if String.IsNullOrWhiteSpace(path) then None else Some path } }
+                | RobocopySourcePath ->
+                    let rc = state.Config.Robocopy |> Option.defaultValue Robocopy.defaultConfig
+                    { state.Config with Robocopy = Some { rc with SourcePath = path } }
+                | RobocopyDestinationPath ->
+                    let rc = state.Config.Robocopy |> Option.defaultValue Robocopy.defaultConfig
+                    { state.Config with Robocopy = Some { rc with DestinationPath = path } }
             { state with Config = newConfig; IsDirty = true; SaveStatus = None }, Elmish.Cmd.none
+
+        // VeraCrypt configuration
+        | SetVeraCryptExePath path ->
+            let vc = state.Config.VeraCrypt |> Option.defaultValue VeraCrypt.defaultConfig
+            { state with
+                Config = { state.Config with VeraCrypt = Some { vc with ExePath = if String.IsNullOrWhiteSpace(path) then None else Some path } }
+                IsDirty = true
+                SaveStatus = None }, Elmish.Cmd.none
+
+        | SetVeraCryptPartition devicePath ->
+            let vc = state.Config.VeraCrypt |> Option.defaultValue VeraCrypt.defaultConfig
+            { state with
+                Config = { state.Config with VeraCrypt = Some { vc with PartitionDevicePath = if String.IsNullOrWhiteSpace(devicePath) then None else Some devicePath } }
+                IsDirty = true
+                SaveStatus = None }, Elmish.Cmd.none
+
+        | LoadPartitions ->
+            let loadCmd : Elmish.Cmd<Msg> =
+                [ fun dispatch ->
+                    async {
+                        let! partitions = PartitionService.getPartitionsAsync ()
+                        Dispatcher.UIThread.Post(fun () -> dispatch (PartitionsLoaded partitions))
+                    } |> Async.Start
+                ]
+            { state with IsLoadingPartitions = true }, loadCmd
+
+        | PartitionsLoaded partitions ->
+            { state with AvailablePartitions = partitions; IsLoadingPartitions = false }, Elmish.Cmd.none
+
+        | SetVeraCryptMountLetter letter ->
+            let mountLetter = if String.IsNullOrWhiteSpace(letter) then 'B' else letter.[0]
+            let vc = state.Config.VeraCrypt |> Option.defaultValue VeraCrypt.defaultConfig
+            { state with
+                Config = { state.Config with VeraCrypt = Some { vc with MountLetter = Char.ToUpper(mountLetter) } }
+                IsDirty = true
+                SaveStatus = None }, Elmish.Cmd.none
+
+        // Robocopy configuration
+        | SetRobocopySourcePath path ->
+            let rc = state.Config.Robocopy |> Option.defaultValue Robocopy.defaultConfig
+            { state with
+                Config = { state.Config with Robocopy = Some { rc with SourcePath = path } }
+                IsDirty = true
+                SaveStatus = None }, Elmish.Cmd.none
+
+        | SetRobocopyDestinationPath path ->
+            let rc = state.Config.Robocopy |> Option.defaultValue Robocopy.defaultConfig
+            { state with
+                Config = { state.Config with Robocopy = Some { rc with DestinationPath = path } }
+                IsDirty = true
+                SaveStatus = None }, Elmish.Cmd.none
 
     let private createTextField (label: string) (value: string) (placeholder: string) (onChange: string -> unit) =
         StackPanel.create [
@@ -989,6 +1075,169 @@ module Settings =
 
                                                 // Add folder form
                                                 createNewFolderForm state dispatch
+                                            ]
+                                        ]
+                                    )
+                                ]
+
+                                // VeraCrypt Section
+                                Border.create [
+                                    Border.cornerRadius Theme.Sizes.cardRadius
+                                    Border.background Theme.Brushes.surface
+                                    Border.padding 24.0
+                                    Border.margin (Thickness(0.0, 0.0, 0.0, 16.0))
+                                    Border.child (
+                                        StackPanel.create [
+                                            StackPanel.children [
+                                                TextBlock.create [
+                                                    TextBlock.text "VeraCrypt Partition"
+                                                    TextBlock.foreground Theme.Brushes.textPrimary
+                                                    TextBlock.fontSize Theme.Typography.fontSizeLg
+                                                    TextBlock.fontWeight FontWeight.Bold
+                                                    TextBlock.margin (Thickness(0.0, 0.0, 0.0, 8.0))
+                                                ]
+
+                                                TextBlock.create [
+                                                    TextBlock.text "Configure an encrypted partition to mount before running backups."
+                                                    TextBlock.foreground Theme.Brushes.textMuted
+                                                    TextBlock.fontSize Theme.Typography.fontSizeSm
+                                                    TextBlock.margin (Thickness(0.0, 0.0, 0.0, 20.0))
+                                                ]
+
+                                                createTextFieldWithBrowse
+                                                    "VeraCrypt Executable"
+                                                    (state.Config.VeraCrypt |> Option.bind (fun vc -> vc.ExePath) |> Option.defaultValue "")
+                                                    @"e.g., C:\Program Files\VeraCrypt\VeraCrypt.exe"
+                                                    (fun v -> dispatch (SetVeraCryptExePath v))
+                                                    (fun () -> dispatch (BrowseForPath VeraCryptExePath))
+
+                                                // Partition selection
+                                                StackPanel.create [
+                                                    StackPanel.spacing 8.0
+                                                    StackPanel.margin (Thickness(0.0, 0.0, 0.0, 16.0))
+                                                    StackPanel.children [
+                                                        TextBlock.create [
+                                                            TextBlock.text "Encrypted Partition"
+                                                            TextBlock.foreground Theme.Brushes.textSecondary
+                                                            TextBlock.fontSize Theme.Typography.fontSizeSm
+                                                            TextBlock.fontWeight FontWeight.Medium
+                                                        ]
+                                                        DockPanel.create [
+                                                            DockPanel.children [
+                                                                Button.create [
+                                                                    DockPanel.dock Dock.Right
+                                                                    Button.content (if state.IsLoadingPartitions then "Loading..." else "Refresh")
+                                                                    Button.padding (Thickness(12.0, 10.0, 12.0, 10.0))
+                                                                    Button.margin (Thickness(8.0, 0.0, 0.0, 0.0))
+                                                                    Button.background (SolidColorBrush(Color.FromArgb(byte 25, Theme.secondary.R, Theme.secondary.G, Theme.secondary.B)))
+                                                                    Button.foreground Theme.Brushes.secondary
+                                                                    Button.fontSize Theme.Typography.fontSizeSm
+                                                                    Button.fontWeight FontWeight.Medium
+                                                                    Button.cornerRadius 8.0
+                                                                    Button.isEnabled (not state.IsLoadingPartitions)
+                                                                    Button.onClick (fun _ -> dispatch LoadPartitions)
+                                                                ]
+                                                                ComboBox.create [
+                                                                    ComboBox.dataItems (
+                                                                        let currentPath = state.Config.VeraCrypt |> Option.bind (fun vc -> vc.PartitionDevicePath)
+                                                                        // Create display items: empty option + available partitions
+                                                                        let items =
+                                                                            ("", "Select a partition...") ::
+                                                                            (state.AvailablePartitions |> List.map (fun p -> (p.DevicePath, p.DisplayName)))
+                                                                        items
+                                                                    )
+                                                                    ComboBox.itemTemplate (
+                                                                        DataTemplateView<string * string>.create (fun (_, displayName) ->
+                                                                            TextBlock.create [
+                                                                                TextBlock.text displayName
+                                                                                TextBlock.foreground Theme.Brushes.textPrimary
+                                                                            ]
+                                                                        )
+                                                                    )
+                                                                    ComboBox.selectedItem (
+                                                                        let currentPath = state.Config.VeraCrypt |> Option.bind (fun vc -> vc.PartitionDevicePath) |> Option.defaultValue ""
+                                                                        let items =
+                                                                            ("", "Select a partition...") ::
+                                                                            (state.AvailablePartitions |> List.map (fun p -> (p.DevicePath, p.DisplayName)))
+                                                                        items |> List.tryFind (fun (path, _) -> path = currentPath) |> Option.defaultValue ("", "Select a partition...")
+                                                                    )
+                                                                    ComboBox.onSelectedItemChanged (fun item ->
+                                                                        match item with
+                                                                        | :? (string * string) as (path, _) -> dispatch (SetVeraCryptPartition path)
+                                                                        | _ -> ()
+                                                                    )
+                                                                    ComboBox.background (SolidColorBrush(Color.FromArgb(byte 13, byte 255, byte 255, byte 255)))
+                                                                    ComboBox.foreground Theme.Brushes.textPrimary
+                                                                    ComboBox.borderBrush Theme.Brushes.border
+                                                                    ComboBox.borderThickness 1.0
+                                                                    ComboBox.padding (Thickness(12.0, 10.0, 12.0, 10.0))
+                                                                    ComboBox.cornerRadius 8.0
+                                                                    ComboBox.fontSize Theme.Typography.fontSizeMd
+                                                                    ComboBox.horizontalAlignment HorizontalAlignment.Stretch
+                                                                ]
+                                                            ]
+                                                        ]
+                                                        // Show selected partition path
+                                                        match state.Config.VeraCrypt |> Option.bind (fun vc -> vc.PartitionDevicePath) with
+                                                        | Some path when not (String.IsNullOrWhiteSpace(path)) ->
+                                                            TextBlock.create [
+                                                                TextBlock.text (sprintf "Device: %s" path)
+                                                                TextBlock.foreground Theme.Brushes.textMuted
+                                                                TextBlock.fontSize Theme.Typography.fontSizeXs
+                                                                TextBlock.margin (Thickness(0.0, 4.0, 0.0, 0.0))
+                                                            ]
+                                                        | _ -> ()
+                                                    ]
+                                                ]
+
+                                                createSmallTextField
+                                                    "Mount Letter"
+                                                    (state.Config.VeraCrypt |> Option.map (fun vc -> string vc.MountLetter) |> Option.defaultValue "B")
+                                                    "B"
+                                                    60.0
+                                                    (fun v -> dispatch (SetVeraCryptMountLetter v))
+                                            ]
+                                        ]
+                                    )
+                                ]
+
+                                // Robocopy Section
+                                Border.create [
+                                    Border.cornerRadius Theme.Sizes.cardRadius
+                                    Border.background Theme.Brushes.surface
+                                    Border.padding 24.0
+                                    Border.margin (Thickness(0.0, 0.0, 0.0, 16.0))
+                                    Border.child (
+                                        StackPanel.create [
+                                            StackPanel.children [
+                                                TextBlock.create [
+                                                    TextBlock.text "File Synchronization (Robocopy)"
+                                                    TextBlock.foreground Theme.Brushes.textPrimary
+                                                    TextBlock.fontSize Theme.Typography.fontSizeLg
+                                                    TextBlock.fontWeight FontWeight.Bold
+                                                    TextBlock.margin (Thickness(0.0, 0.0, 0.0, 8.0))
+                                                ]
+
+                                                TextBlock.create [
+                                                    TextBlock.text "Mirror files from source to destination using Robocopy."
+                                                    TextBlock.foreground Theme.Brushes.textMuted
+                                                    TextBlock.fontSize Theme.Typography.fontSizeSm
+                                                    TextBlock.margin (Thickness(0.0, 0.0, 0.0, 20.0))
+                                                ]
+
+                                                createTextFieldWithBrowse
+                                                    "Source Path"
+                                                    (state.Config.Robocopy |> Option.map (fun rc -> rc.SourcePath) |> Option.defaultValue "")
+                                                    @"e.g., G:\My Drive"
+                                                    (fun v -> dispatch (SetRobocopySourcePath v))
+                                                    (fun () -> dispatch (BrowseForPath RobocopySourcePath))
+
+                                                createTextFieldWithBrowse
+                                                    "Destination Path"
+                                                    (state.Config.Robocopy |> Option.map (fun rc -> rc.DestinationPath) |> Option.defaultValue "")
+                                                    @"e.g., B:\G-Drive"
+                                                    (fun v -> dispatch (SetRobocopyDestinationPath v))
+                                                    (fun () -> dispatch (BrowseForPath RobocopyDestinationPath))
                                             ]
                                         ]
                                     )

@@ -33,10 +33,14 @@ module Shell =
 
     let init () =
         let config = Config.load ()
-        { CurrentPage = Overview
-          Config = config
-          DashboardState = Dashboard.init config
-          SettingsState = Settings.init () }
+        let (settingsState, settingsCmd) = Settings.init ()
+        let state = 
+            { CurrentPage = Overview
+              Config = config
+              DashboardState = Dashboard.init config
+              SettingsState = settingsState }
+        let cmd = settingsCmd |> Elmish.Cmd.map SettingsMsg
+        state, cmd
 
     let update (msg: Msg) (state: State) : State * Elmish.Cmd<Msg> =
         match msg with

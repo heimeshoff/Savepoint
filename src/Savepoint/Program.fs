@@ -26,7 +26,7 @@ module Program =
             this.Background <- Theme.Brushes.background
 
             // Initialize the Elmish program with command support
-            Elmish.Program.mkProgram (fun () -> Shell.init (), Elmish.Cmd.none) Shell.update Shell.view
+            Elmish.Program.mkProgram Shell.init Shell.update Shell.view
             |> Elmish.Program.withHost this
             |> Elmish.Program.run
 

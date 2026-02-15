@@ -44,6 +44,85 @@ module Domain =
         StorageTotalMB: int64 option
     }
 
+    // ============================================
+    // VeraCrypt Types (defined before AppConfig)
+    // ============================================
+
+    /// Status of a VeraCrypt volume
+    type VeraCryptStatus =
+        | VCNotConfigured
+        | Unmounted
+        | Mounted of driveLetter: char
+        | VCUnknown
+        | VeraCryptError of message: string
+
+    /// Configuration for VeraCrypt volume mounting
+    type VeraCryptConfig = {
+        ExePath: string option              // Path to VeraCrypt.exe
+        PartitionDevicePath: string option  // e.g., "\Device\Harddisk1\Partition1"
+        MountLetter: char                   // Target drive letter (e.g., 'B')
+    }
+
+    // ============================================
+    // Robocopy Types (defined before AppConfig)
+    // ============================================
+
+    /// Summary statistics from a Robocopy operation
+    type RobocopySummary = {
+        FilesTotal: int
+        FilesCopied: int
+        FilesSkipped: int
+        FilesFailed: int
+        BytesTotal: int64
+        BytesCopied: int64
+    }
+
+    /// Progress information during Robocopy sync
+    type RobocopyProgressInfo = {
+        CurrentFile: string
+        FilesProcessed: int
+        OverallPercent: int
+        IsDryRun: bool
+    }
+
+    /// State of sync operations
+    type SyncState =
+        | SyncIdle
+        | Syncing of RobocopyProgressInfo
+        | DryRunning of RobocopyProgressInfo
+        | SyncCompleted of RobocopySummary
+        | SyncError of message: string
+
+    /// Configuration for Robocopy synchronization
+    type RobocopyConfig = {
+        SourcePath: string           // e.g., "G:\My Drive"
+        DestinationPath: string      // e.g., "B:\G-Drive"
+    }
+
+    /// Type of file operation detected by Robocopy
+    type FileOperation =
+        | NewFile      // Green - new file
+        | Newer        // Yellow - source newer
+        | Older        // Yellow - source older
+        | ExtraFile    // Red - will be deleted
+
+    /// A single file entry from Robocopy output
+    type FileEntry = {
+        Operation: FileOperation
+        FullPath: string
+        FileName: string
+        FileSize: int64 option
+    }
+
+    /// Tree structure for displaying sync operations
+    type SyncTreeNode =
+        | DirectoryNode of name: string * path: string * children: SyncTreeNode list
+        | FileNode of FileEntry
+
+    // ============================================
+    // Application Configuration
+    // ============================================
+
     /// Application configuration
     type AppConfig = {
         GoogleDrivePath: string
@@ -55,6 +134,8 @@ module Domain =
         LinuxServerKeyPath: string option       // Path to private key
         LinuxServerPassphrase: string option    // Passphrase for encrypted SSH key
         LinuxServerFolders: LinuxFolder list    // Configured backup folders
+        VeraCrypt: VeraCryptConfig option       // VeraCrypt volume configuration
+        Robocopy: RobocopyConfig option         // Robocopy sync configuration
     }
 
     /// Represents a navigation page in the app
@@ -97,6 +178,10 @@ module Domain =
             elif age.TotalDays < float thresholds.StaleDays then Stale
             else Critical
 
+    // ============================================
+    // Download Types
+    // ============================================
+
     /// Download result for a single folder (simplified for UI display)
     type DownloadResult = {
         FolderName: string
@@ -134,4 +219,6 @@ module Domain =
         LinuxServerKeyPath = None
         LinuxServerPassphrase = None
         LinuxServerFolders = []
+        VeraCrypt = None
+        Robocopy = None
     }

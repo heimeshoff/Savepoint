@@ -3,6 +3,7 @@ namespace Savepoint.Services
 open System
 open System.IO
 open System.Text.Json
+open System.Text.Json.Nodes
 open System.Text.Json.Serialization
 open Savepoint.Domain
 
@@ -12,7 +13,13 @@ module Config =
     /// JSON serialization options
     let private jsonOptions =
         let options = JsonSerializerOptions(WriteIndented = true)
-        options.Converters.Add(JsonFSharpConverter())
+        // Configure FSharp converter:
+        // - SkippableOptionFields.Always: missing optional fields are treated as None
+        let fsharpOptions =
+            JsonFSharpOptions.Default()
+                .WithSkippableOptionFields(SkippableOptionFields.Always)
+        options.Converters.Add(JsonFSharpConverter(fsharpOptions))
+        options.UnmappedMemberHandling <- JsonUnmappedMemberHandling.Skip
         options
 
     /// Get the configuration file path
@@ -28,13 +35,41 @@ module Config =
         if not (Directory.Exists(configDir)) then
             Directory.CreateDirectory(configDir) |> ignore
 
+    /// Recursively remove null values and unknown fields from JSON to handle migration
+    let private cleanJsonForMigration (json: string) : string =
+        let node = JsonNode.Parse(json)
+        let rec removeNulls (n: JsonNode) =
+            match n with
+            | :? JsonObject as obj ->
+                // Remove properties with null values (they will become None for option fields)
+                let keysToRemove =
+                    obj
+                    |> Seq.filter (fun kvp -> kvp.Value = null || (kvp.Value :? JsonValue && kvp.Value.ToString() = "null"))
+                    |> Seq.map (fun kvp -> kvp.Key)
+                    |> Seq.toList
+                for key in keysToRemove do
+                    obj.Remove(key) |> ignore
+                // Recursively process remaining properties
+                for kvp in obj do
+                    if kvp.Value <> null then
+                        removeNulls kvp.Value
+            | :? JsonArray as arr ->
+                for item in arr do
+                    if item <> null then
+                        removeNulls item
+            | _ -> ()
+        removeNulls node
+        node.ToJsonString()
+
     /// Load configuration from disk
     let load () : AppConfig =
         let configPath = getConfigPath ()
         if File.Exists(configPath) then
             try
                 let json = File.ReadAllText(configPath)
-                JsonSerializer.Deserialize<AppConfig>(json, jsonOptions)
+                // Clean the JSON to handle migration from old configs
+                let cleanedJson = cleanJsonForMigration json
+                JsonSerializer.Deserialize<AppConfig>(cleanedJson, jsonOptions)
             with
             | ex ->
                 printfn "Error loading config: %s" ex.Message
